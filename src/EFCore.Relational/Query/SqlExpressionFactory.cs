@@ -74,6 +74,7 @@ namespace Microsoft.EntityFrameworkCore.Query
                 SqlFragmentExpression e => e,
                 SqlFunctionExpression e => e.ApplyTypeMapping(typeMapping),
                 SqlParameterExpression e => e.ApplyTypeMapping(typeMapping),
+                InExpression e => ApplyTypeMappingOnIn(e),
                 _ => sqlExpression
             };
         }
@@ -230,6 +231,30 @@ namespace Microsoft.EntityFrameworkCore.Query
                 ApplyTypeMapping(right, inferredTypeMapping),
                 resultType,
                 resultTypeMapping);
+        }
+
+        private SqlExpression ApplyTypeMappingOnIn(InExpression inExpression)
+        {
+            var itemTypeMapping = (inExpression.Values != null
+                ? ExpressionExtensions.InferTypeMapping(inExpression.Item, inExpression.Values)
+                : inExpression.Subquery != null
+                    ? ExpressionExtensions.InferTypeMapping(inExpression.Item, inExpression.Subquery.Projection.Single().Expression)
+                    : inExpression.Item.TypeMapping)
+                ?? Dependencies.TypeMappingSource.FindMapping(inExpression.Item.Type, Dependencies.Model);
+
+            var item = ApplyTypeMapping(inExpression.Item, itemTypeMapping);
+            if (inExpression.Values != null)
+            {
+                var values = ApplyTypeMapping(inExpression.Values, itemTypeMapping);
+
+                return item != inExpression.Item || values != inExpression.Values || inExpression.TypeMapping != _boolTypeMapping
+                    ? new InExpression(item, values, inExpression.IsNegated, _boolTypeMapping)
+                    : inExpression;
+            }
+
+            return item != inExpression.Item || inExpression.TypeMapping != _boolTypeMapping
+                ? new InExpression(item, inExpression.Subquery!, inExpression.IsNegated, _boolTypeMapping)
+                : inExpression;
         }
 
         /// <inheritdoc />
